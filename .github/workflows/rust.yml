@@ -27,11 +27,11 @@ jobs:
 
       # 构建项目
       - name: Build
-        run: cargo +nightly build --config .cargo/release.toml --release --verbose
+        run: cargo +nightly build --verbose
 
       # 运行测试
       - name: Run tests
-        run: cargo +nightly test --config .cargo/release.toml --release --verbose
+        run: cargo +nightly test --verbose
 
       # 上传构建产物
       - name: Upload build artifacts
