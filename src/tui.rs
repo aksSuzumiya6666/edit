@@ -16,7 +16,7 @@
 //! set up callbacks for when it is clicked, and then stop worrying about it.
 //!
 //! The downside of immediate mode is that your UI code _may_ become cluttered.
-//! The upside however is that that you cannot leak UI elements, you don't need to
+//! The upside however is that you cannot leak UI elements, you don't need to
 //! worry about lifetimes nor callbacks, and that simple UIs are simple to write.
 //!
 //! More importantly though, the primary reason for this is that the
@@ -2410,8 +2410,13 @@ impl<'a> Context<'a, '_> {
                         // If the line has some indentation and the user pressed Home,
                         // the first time it'll stop at the indentation. The second time
                         // they press it, it'll move to the true start of the line.
-                        let indent_end = tb.indent_end_logical_pos();
-                        if logical_after.x == 0 && logical_before > indent_end {
+                        //
+                        // If the cursor is already at the start of the line,
+                        // we move it back to the end of the indentation.
+                        if logical_after.x == 0
+                            && let indent_end = tb.indent_end_logical_pos()
+                            && (logical_before > indent_end || logical_before.x == 0)
+                        {
                             if modifiers == kbmod::SHIFT {
                                 tb.selection_update_logical(indent_end);
                             } else {

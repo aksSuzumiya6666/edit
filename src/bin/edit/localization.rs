@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use edit::arena::scratch_arena;
+use edit::helpers::AsciiStringHelpers;
 use edit::sys;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -331,7 +332,7 @@ const S_LANG_LUT: [[&str; LangId::Count as usize]; LocId::Count as usize] = [
         /* en      */ "Edit",
         /* de      */ "Bearbeiten",
         /* es      */ "Editar",
-        /* fr      */ "Éditer",
+        /* fr      */ "Édition",
         /* it      */ "Modifica",
         /* ja      */ "編集",
         /* ko      */ "편집",
@@ -458,7 +459,7 @@ const S_LANG_LUT: [[&str; LangId::Count as usize]; LocId::Count as usize] = [
         /* en      */ "Focus Statusbar",
         /* de      */ "Statusleiste fokussieren",
         /* es      */ "Enfocar barra de estado",
-        /* fr      */ "Focus sur la barre d'état",
+        /* fr      */ "Activer la barre d’état",
         /* it      */ "Attiva barra di stato",
         /* ja      */ "ステータスバーにフォーカス",
         /* ko      */ "상태 표시줄로 포커스 이동",
@@ -530,7 +531,7 @@ const S_LANG_LUT: [[&str; LangId::Count as usize]; LocId::Count as usize] = [
         /* en      */ "Do you want to save the changes you made?",
         /* de      */ "Möchten Sie die vorgenommenen Änderungen speichern?",
         /* es      */ "¿Desea guardar los cambios realizados?",
-        /* fr      */ "Voulez-vous enregistrer les modifications apportées?",
+        /* fr      */ "Voulez-vous enregistrer les modifications apportées ?",
         /* it      */ "Vuoi salvare le modifiche apportate?",
         /* ja      */ "変更内容を保存しますか？",
         /* ko      */ "변경한 내용을 저장하시겠습니까?",
@@ -587,7 +588,7 @@ const S_LANG_LUT: [[&str; LangId::Count as usize]; LocId::Count as usize] = [
         /* en      */ "Version: ",
         /* de      */ "Version: ",
         /* es      */ "Versión: ",
-        /* fr      */ "Version: ",
+        /* fr      */ "Version : ",
         /* it      */ "Versione: ",
         /* ja      */ "バージョン: ",
         /* ko      */ "버전: ",
@@ -704,7 +705,7 @@ const S_LANG_LUT: [[&str; LangId::Count as usize]; LocId::Count as usize] = [
         /* en      */ "Find:",
         /* de      */ "Suchen:",
         /* es      */ "Buscar:",
-        /* fr      */ "Rechercher:",
+        /* fr      */ "Rechercher :",
         /* it      */ "Trova:",
         /* ja      */ "検索:",
         /* ko      */ "찾기:",
@@ -718,7 +719,7 @@ const S_LANG_LUT: [[&str; LangId::Count as usize]; LocId::Count as usize] = [
         /* en      */ "Replace:",
         /* de      */ "Ersetzen:",
         /* es      */ "Reemplazar:",
-        /* fr      */ "Remplacer:",
+        /* fr      */ "Remplacer :",
         /* it      */ "Sostituire:",
         /* ja      */ "置換:",
         /* ko      */ "바꾸기:",
@@ -861,7 +862,7 @@ const S_LANG_LUT: [[&str; LangId::Count as usize]; LocId::Count as usize] = [
         /* en      */ "Folder:",
         /* de      */ "Ordner:",
         /* es      */ "Carpeta:",
-        /* fr      */ "Dossier:",
+        /* fr      */ "Dossier :",
         /* it      */ "Cartella:",
         /* ja      */ "フォルダ:",
         /* ko      */ "폴더:",
@@ -875,7 +876,7 @@ const S_LANG_LUT: [[&str; LangId::Count as usize]; LocId::Count as usize] = [
         /* en      */ "File name:",
         /* de      */ "Dateiname:",
         /* es      */ "Nombre de archivo:",
-        /* fr      */ "Nom de fichier:",
+        /* fr      */ "Nom de fichier :",
         /* it      */ "Nome del file:",
         /* ja      */ "ファイル名:",
         /* ko      */ "파일 이름:",
@@ -918,26 +919,33 @@ const S_LANG_LUT: [[&str; LangId::Count as usize]; LocId::Count as usize] = [
 static mut S_LANG: LangId = LangId::en;
 
 pub fn init() {
+    const LANG_MAP: &[(&str, LangId)] = &[
+        ("en", LangId::en),
+        // ----------------
+        ("de", LangId::de),
+        ("es", LangId::es),
+        ("fr", LangId::fr),
+        ("it", LangId::it),
+        ("ja", LangId::ja),
+        ("ko", LangId::ko),
+        ("pt-br", LangId::pt_br),
+        ("ru", LangId::ru),
+        ("zh-hant", LangId::zh_hant),
+        ("zh-tw", LangId::zh_hant),
+        ("zh", LangId::zh_hans),
+    ];
+
     let scratch = scratch_arena(None);
     let langs = sys::preferred_languages(&scratch);
     let mut lang = LangId::en;
 
     for l in langs {
-        lang = match l.as_str() {
-            "en" => LangId::en,
-            "de" => LangId::de,
-            "es" => LangId::es,
-            "fr" => LangId::fr,
-            "it" => LangId::it,
-            "ja" => LangId::ja,
-            "ko" => LangId::ko,
-            "pt-br" => LangId::pt_br,
-            "ru" => LangId::ru,
-            "zh-hant" => LangId::zh_hant,
-            "zh" => LangId::zh_hans,
-            _ => continue,
-        };
-        break;
+        for (prefix, id) in LANG_MAP {
+            if l.starts_with_ignore_ascii_case(prefix) {
+                lang = *id;
+                break;
+            }
+        }
     }
 
     unsafe {
