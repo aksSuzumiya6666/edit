@@ -8,7 +8,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTC_BOOTSTRAP: 1
 
 jobs:
   build:
@@ -19,33 +18,20 @@ jobs:
 
     steps:
       # 检出代码
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       # 安装 Rust 工具链
-      - name: Install Rust nightly toolchain
-        uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
 
-      # 打印环境信息，方便调试
-      - name: Print environment information
-        run: |
-          rustc --version
-          cargo --version
-          rustup show
-
       # 构建项目
-      - name: Build project
+      - name: Build
         run: cargo +nightly build --config .cargo/release.toml --release --verbose
-        env:
-          RUST_BACKTRACE: full
 
       # 运行测试
       - name: Run tests
         run: cargo +nightly test --config .cargo/release.toml --release --verbose
-        env:
-          RUST_BACKTRACE: full
 
       # 上传构建产物
       - name: Upload build artifacts
@@ -53,6 +39,6 @@ jobs:
         with:
           name: edit-build-artifacts-${{ matrix.os }}
           path: |
-            ${{ runner.os == 'Windows' && 'target/release/edit.exe' || '' }}
-            ${{ runner.os == 'Linux' && 'target/release/edit' || '' }}
-            ${{ runner.os == 'macOS' && 'target/release/edit' || '' }}
+            ${{ runner.os == 'Windows' && 'target/debug/edit.exe' || '' }}
+            ${{ runner.os == 'Linux' && 'target/debug/edit' || '' }}
+            ${{ runner.os == 'macOS' && 'target/debug/edit' || '' }}
