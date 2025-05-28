@@ -131,7 +131,7 @@
 //!
 //!         // Thanks to the lack of callbacks, we can use a primitive
 //!         // if condition here, as well as in any potential C code.
-//!         if ctx.button("button", "Click me!") {
+//!         if ctx.button("button", "Click me!", ButtonStyle::default()) {
 //!             state.counter += 1;
 //!         }
 //!
@@ -161,6 +161,8 @@ use crate::{apperr, arena_format, input, unicode};
 
 const ROOT_ID: u64 = 0x14057B7EF767814F; // Knuth's MMIX constant
 const SHIFT_TAB: InputKey = vk::TAB.with_modifiers(kbmod::SHIFT);
+const KBMOD_FOR_WORD_NAV: InputKeyMod =
+    if cfg!(target_os = "macos") { kbmod::ALT } else { kbmod::CTRL };
 
 type Input<'input> = input::Input<'input>;
 type InputKey = input::InputKey;
@@ -272,7 +274,7 @@ impl ButtonStyle {
     pub fn accelerator(self, char: char) -> Self {
         Self { accelerator: Some(char), ..self }
     }
-    /// Draw a checkbox prefix: `[▣ Example Button]`
+    /// Draw a checkbox prefix: `[🗹 Example Button]`
     pub fn checked(self, checked: bool) -> Self {
         Self { checked: Some(checked), ..self }
     }
@@ -521,17 +523,21 @@ impl Tui {
             self.mouse_is_drag = false;
         }
 
-        if self.scroll_to_focused() {
-            self.needs_more_settling();
-        }
-
         let now = std::time::Instant::now();
         let mut input_text = None;
         let mut input_keyboard = None;
         let mut input_mouse_modifiers = kbmod::NONE;
         let mut input_mouse_click = 0;
         let mut input_scroll_delta = Point { x: 0, y: 0 };
-        let input_consumed = self.needs_settling();
+        // `input_consumed` should be `true` if we're in the settling phase which is indicated by
+        // `self.needs_settling() == true`. However, there's a possibility for it being true from
+        // a previous frame, and we do have fresh new input. In that case want `input_consumed`
+        // to be false of course which is ensured by checking for `input.is_none()`.
+        let input_consumed = self.needs_settling() && input.is_none();
+
+        if self.scroll_to_focused() {
+            self.needs_more_settling();
+        }
 
         match input {
             None => {}
@@ -2003,7 +2009,7 @@ impl<'a> Context<'a, '_> {
         if self.is_focused() {
             self.attr_reverse();
         }
-        self.styled_label_add_text(if *checked { "[▣ " } else { "[☐ " });
+        self.styled_label_add_text(if *checked { "[🗹 " } else { "[☐ " });
         self.styled_label_add_text(text);
         self.styled_label_add_text("]");
         self.styled_label_end();
@@ -2285,7 +2291,8 @@ impl<'a> Context<'a, '_> {
                             let trackable = track_rect.height() - tc.thumb_height;
                             let delta_y = mouse.y - self.tui.mouse_down_position.y;
                             tc.scroll_offset.y = tc.scroll_offset_y_drag_start
-                                + ((delta_y * scrollable_height) / trackable);
+                                + (delta_y as i64 * scrollable_height as i64 / trackable as i64)
+                                    as CoordType;
                         }
                     }
                 }
@@ -2490,7 +2497,7 @@ impl<'a> Context<'a, '_> {
                     }
                 }
                 vk::LEFT => {
-                    let granularity = if modifiers.contains(kbmod::CTRL) {
+                    let granularity = if modifiers.contains(KBMOD_FOR_WORD_NAV) {
                         CursorMovement::Word
                     } else {
                         CursorMovement::Grapheme
@@ -2548,7 +2555,7 @@ impl<'a> Context<'a, '_> {
                     }
                 }
                 vk::RIGHT => {
-                    let granularity = if modifiers.contains(kbmod::CTRL) {
+                    let granularity = if modifiers.contains(KBMOD_FOR_WORD_NAV) {
                         CursorMovement::Word
                     } else {
                         CursorMovement::Grapheme
@@ -2627,6 +2634,22 @@ impl<'a> Context<'a, '_> {
                 },
                 vk::A => match modifiers {
                     kbmod::CTRL => tb.select_all(),
+                    _ => return false,
+                },
+                vk::B => match modifiers {
+                    kbmod::ALT if cfg!(target_os = "macos") => {
+                        // On macOS, terminals commonly emit the Emacs style
+                        // Alt+B (ESC b) sequence for Alt+Left.
+                        tb.cursor_move_delta(CursorMovement::Word, -1);
+                    }
+                    _ => return false,
+                },
+                vk::F => match modifiers {
+                    kbmod::ALT if cfg!(target_os = "macos") => {
+                        // On macOS, terminals commonly emit the Emacs style
+                        // Alt+F (ESC f) sequence for Alt+Right.
+                        tb.cursor_move_delta(CursorMovement::Word, 1);
+                    }
                     _ => return false,
                 },
                 vk::H => match modifiers {
@@ -2812,7 +2835,9 @@ impl<'a> Context<'a, '_> {
                                     let delta_y =
                                         self.tui.mouse_position.y - self.tui.mouse_down_position.y;
                                     sc.scroll_offset.y = sc.scroll_offset_y_drag_start
-                                        + ((delta_y * scrollable_height) / trackable);
+                                        + (delta_y as i64 * scrollable_height as i64
+                                            / trackable as i64)
+                                            as CoordType;
                                 }
 
                                 self.set_input_consumed();
@@ -3062,6 +3087,7 @@ impl<'a> Context<'a, '_> {
     ///
     /// Returns true if the menu is open. Continue appending items to it in that case.
     pub fn menubar_menu_begin(&mut self, text: &str, accelerator: char) -> bool {
+        let accelerator = if cfg!(target_os = "macos") { '\0' } else { accelerator };
         let mixin = self.tree.current_node.borrow().child_count as u64;
         self.next_block_id_mixin(mixin);
 
@@ -3074,7 +3100,8 @@ impl<'a> Context<'a, '_> {
         self.attr_padding(Rect::two(0, 1));
 
         let contains_focus = self.contains_focus();
-        let keyboard_focus = !contains_focus
+        let keyboard_focus = accelerator != '\0'
+            && !contains_focus
             && self.consume_shortcut(kbmod::ALT | InputKey::new(accelerator as u32));
 
         if contains_focus || keyboard_focus {
@@ -3201,13 +3228,13 @@ impl<'a> Context<'a, '_> {
             self.styled_label_add_text("[");
         }
         if let Some(checked) = style.checked {
-            self.styled_label_add_text(if checked { "▣ " } else { "  " });
+            self.styled_label_add_text(if checked { "🗹 " } else { "  " });
         }
         // Label text
         match style.accelerator {
             Some(accelerator) if accelerator.is_ascii_uppercase() => {
                 // Complex case:
-                // Locate the offset of the acclerator character in the label text
+                // Locate the offset of the accelerator character in the label text
                 let mut off = text.len();
                 for (i, c) in text.bytes().enumerate() {
                     // Perfect match (uppercase character) --> stop

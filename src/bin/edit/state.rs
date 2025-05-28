@@ -6,7 +6,6 @@ use std::ffi::{OsStr, OsString};
 use std::mem;
 use std::path::{Path, PathBuf};
 
-use edit::buffer::TextBuffer;
 use edit::framebuffer::IndexedColor;
 use edit::helpers::*;
 use edit::tui::*;
@@ -132,6 +131,7 @@ pub struct State {
 
     pub wants_file_picker: StateFilePicker,
     pub file_picker_pending_dir: DisplayablePathBuf,
+    pub file_picker_pending_dir_revision: u64, // Bumped every time `file_picker_pending_dir` changes.
     pub file_picker_pending_name: PathBuf,
     pub file_picker_entries: Option<Vec<DisplayablePathBuf>>,
     pub file_picker_overwrite_warning: Option<PathBuf>, // The path the warning is about.
@@ -164,13 +164,6 @@ pub struct State {
 
 impl State {
     pub fn new() -> apperr::Result<Self> {
-        let buffer = TextBuffer::new_rc(false)?;
-        {
-            let mut tb = buffer.borrow_mut();
-            tb.set_margin_enabled(true);
-            tb.set_line_highlight_enabled(true);
-        }
-
         Ok(Self {
             menubar_color_bg: 0,
             menubar_color_fg: 0,
@@ -183,6 +176,7 @@ impl State {
 
             wants_file_picker: StateFilePicker::None,
             file_picker_pending_dir: Default::default(),
+            file_picker_pending_dir_revision: 0,
             file_picker_pending_name: Default::default(),
             file_picker_entries: None,
             file_picker_overwrite_warning: None,

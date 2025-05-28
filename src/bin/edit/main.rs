@@ -207,7 +207,7 @@ fn run() -> apperr::Result<()> {
                 );
 
                 // "μs" is 3 bytes and 2 columns.
-                let cols = status.len() as i32 - 3 + 2;
+                let cols = status.len() as edit::helpers::CoordType - 3 + 2;
 
                 // Since the status may shrink and grow, we may have to overwrite the previous one with whitespace.
                 let padding = (last_latency_width - cols).max(0);
@@ -280,6 +280,7 @@ fn handle_args(state: &mut State) -> apperr::Result<bool> {
     }
 
     state.file_picker_pending_dir = DisplayablePathBuf::from_path(cwd);
+    state.file_picker_pending_dir_revision = state.file_picker_pending_dir_revision.wrapping_add(1);
     Ok(false)
 }
 

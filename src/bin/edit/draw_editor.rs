@@ -125,9 +125,11 @@ fn draw_search(ctx: &mut Context, state: &mut State) {
         ctx.table_begin("options");
         ctx.table_set_cell_gap(Size { width: 2, height: 0 });
         {
+            let mut change = false;
+            let mut change_action = SearchAction::Search;
+
             ctx.table_next_row();
 
-            let mut change = false;
             change |= ctx.checkbox(
                 "match-case",
                 loc(LocId::SearchMatchCase),
@@ -143,20 +145,20 @@ fn draw_search(ctx: &mut Context, state: &mut State) {
                 loc(LocId::SearchUseRegex),
                 &mut state.search_options.use_regex,
             );
-            if change {
-                action = SearchAction::Search;
-                state.wants_search.focus = true;
-                ctx.needs_rerender();
-            }
-
             if state.wants_search.kind == StateSearchKind::Replace
                 && ctx.button("replace-all", loc(LocId::SearchReplaceAll), ButtonStyle::default())
             {
-                action = SearchAction::ReplaceAll;
+                change = true;
+                change_action = SearchAction::ReplaceAll;
             }
-
             if ctx.button("close", loc(LocId::SearchClose), ButtonStyle::default()) {
                 state.wants_search.kind = StateSearchKind::Hidden;
+            }
+
+            if change {
+                action = change_action;
+                state.wants_search.focus = true;
+                ctx.needs_rerender();
             }
         }
         ctx.table_end();
@@ -204,7 +206,6 @@ pub fn draw_handle_save(ctx: &mut Context, state: &mut State) {
 pub fn draw_handle_wants_close(ctx: &mut Context, state: &mut State) {
     let Some(doc) = state.documents.active() else {
         state.wants_close = false;
-        state.wants_exit = true;
         return;
     };
 

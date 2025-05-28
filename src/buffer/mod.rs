@@ -250,9 +250,8 @@ impl TextBuffer {
             line_highlight_enabled: false,
             ruler: 0,
             encoding: "UTF-8",
-            // Windows users want CRLF and no final newline.
-            newlines_are_crlf: cfg!(windows),
-            insert_final_newline: !cfg!(windows),
+            newlines_are_crlf: cfg!(windows), // Windows users want CRLF
+            insert_final_newline: false,
             overtype: false,
 
             wants_cursor_visibility: false,
@@ -382,6 +381,12 @@ impl TextBuffer {
         }
 
         self.newlines_are_crlf = crlf;
+    }
+
+    /// If enabled, automatically insert a final newline
+    /// when typing at the end of the file.
+    pub fn set_insert_final_newline(&mut self, enabled: bool) {
+        self.insert_final_newline = enabled;
     }
 
     /// Whether to insert or overtype text when writing.
@@ -910,7 +915,7 @@ impl TextBuffer {
     }
 
     fn set_selection(&mut self, selection: Option<TextBufferSelection>) -> u32 {
-        self.selection = selection;
+        self.selection = selection.filter(|s| s.beg != s.end);
         self.selection_generation = self.selection_generation.wrapping_add(1);
         self.selection_generation
     }
@@ -1090,6 +1095,10 @@ impl TextBuffer {
         pattern: &str,
         options: SearchOptions,
     ) -> apperr::Result<ActiveSearch> {
+        if pattern.is_empty() {
+            return Err(apperr::Error::Icu(1)); // U_ILLEGAL_ARGUMENT_ERROR
+        }
+
         let sanitized_pattern = if options.whole_word && options.use_regex {
             Cow::Owned(format!(r"\b(?:{pattern})\b"))
         } else if options.whole_word {
@@ -1143,7 +1152,7 @@ impl TextBuffer {
 
     fn find_select_next(&mut self, search: &mut ActiveSearch, offset: usize, wrap: bool) {
         if search.buffer_generation != self.buffer.generation() {
-            unsafe { search.regex.set_text(&search.text, offset) };
+            unsafe { search.regex.set_text(&mut search.text, offset) };
             search.buffer_generation = self.buffer.generation();
             search.next_search_offset = offset;
         } else if search.next_search_offset != offset {
@@ -1247,7 +1256,7 @@ impl TextBuffer {
                 self.measurement_config().with_cursor(top).goto_logical(bottom.logical_pos);
 
             // The second problem is that visual positions can be ambiguous. A single logical position
-            // can map to two visual positions: One at the end of the preceeding line in front of
+            // can map to two visual positions: One at the end of the preceding line in front of
             // a word wrap, and another at the start of the next line after the same word wrap.
             //
             // This, however, only applies if we go upwards, because only then `bottom ≅ cursor`,
