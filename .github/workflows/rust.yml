@@ -27,7 +27,7 @@ jobs:
 
       # 构建项目
       - name: Build
-        run: cargo build --config .cargo/release-nightly.toml --release
+        run: cargo +nightly build --verbose
 
       # 运行测试
       - name: Run tests
