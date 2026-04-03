@@ -42,7 +42,7 @@ use stdext::{ReplaceRange as _, arena_write_fmt, minmax, slice_as_uninit_mut, sl
 use crate::cell::SemiRefCell;
 use crate::clipboard::Clipboard;
 use crate::document::{ReadableDocument, WriteableDocument};
-use crate::framebuffer::{Framebuffer, IndexedColor};
+use crate::framebuffer::{Attributes, Framebuffer, IndexedColor};
 use crate::helpers::*;
 use crate::lsh::cache::HighlighterCache;
 use crate::lsh::{HighlightKind, Highlighter, Language};
@@ -352,12 +352,14 @@ impl TextBuffer {
         self.buffer.generation()
     }
 
-    /// Force the buffer to be dirty.
+    /// Force the buffer to be dirty (needs to be saved to disk).
     pub fn mark_as_dirty(&mut self) {
         self.last_save_generation = self.buffer.generation().wrapping_sub(1);
     }
 
-    fn mark_as_clean(&mut self) {
+    /// Force the buffer to be clean (has been saved to disk).
+    /// Use this with caution. It's called automatically on write().
+    pub fn mark_as_clean(&mut self) {
         self.last_save_generation = self.buffer.generation();
     }
 
@@ -2131,12 +2133,30 @@ impl TextBuffer {
                 let color = match curr.kind {
                     HighlightKind::Other => None,
                     HighlightKind::Comment => Some(IndexedColor::Green),
+                    HighlightKind::Method => Some(IndexedColor::BrightYellow),
+                    HighlightKind::String => Some(IndexedColor::BrightRed),
+                    HighlightKind::Variable => Some(IndexedColor::BrightCyan),
+                    HighlightKind::ConstantLanguage => Some(IndexedColor::BrightBlue),
                     HighlightKind::ConstantNumeric => Some(IndexedColor::BrightGreen),
                     HighlightKind::KeywordControl => Some(IndexedColor::BrightMagenta),
+                    HighlightKind::KeywordOther => Some(IndexedColor::BrightBlue),
+                    HighlightKind::MarkupBold => None,
                     HighlightKind::MarkupChanged => Some(IndexedColor::BrightBlue),
                     HighlightKind::MarkupDeleted => Some(IndexedColor::BrightRed),
+                    HighlightKind::MarkupHeading => Some(IndexedColor::BrightBlue),
                     HighlightKind::MarkupInserted => Some(IndexedColor::BrightGreen),
+                    HighlightKind::MarkupItalic => None,
+                    HighlightKind::MarkupLink => None,
+                    HighlightKind::MarkupList => Some(IndexedColor::BrightBlue),
+                    HighlightKind::MarkupStrikethrough => None,
                     HighlightKind::MetaHeader => Some(IndexedColor::BrightBlue),
+                };
+                let attr = match curr.kind {
+                    HighlightKind::MarkupBold => Some(Attributes::Bold),
+                    HighlightKind::MarkupItalic => Some(Attributes::Italic),
+                    HighlightKind::MarkupLink => Some(Attributes::Underlined),
+                    HighlightKind::MarkupStrikethrough => Some(Attributes::Strikethrough),
+                    _ => None,
                 };
 
                 // Handle the case where the highlight spans multiple visual lines
@@ -2198,6 +2218,9 @@ impl TextBuffer {
 
                     if let Some(color) = color {
                         fb.blend_fg(rect, fb.indexed(color));
+                    }
+                    if let Some(attr) = attr {
+                        fb.replace_attr(rect, Attributes::All, attr);
                     }
                 }
             }
