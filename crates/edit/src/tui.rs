@@ -276,7 +276,7 @@ impl ButtonStyle {
     pub fn accelerator(self, char: char) -> Self {
         Self { accelerator: Some(char), ..self }
     }
-    /// Draw a checkbox prefix: `[🗹 Example Button]`
+    /// Draw a checkbox prefix: `[◼ Example Button]`
     pub fn checked(self, checked: bool) -> Self {
         Self { checked: Some(checked), ..self }
     }
@@ -363,6 +363,10 @@ pub struct Tui {
     /// need to scroll the node into view if it's within a scrollarea.
     focused_node_for_scrolling: u64,
 
+    /// The menubar button whose menu is open and can be closed by clicking it again.
+    /// Only set once the press that opened the menu has ended.
+    menubar_toggle_id: u64,
+
     /// A list of cached text buffers used for [`Context::editline()`].
     cached_text_buffers: Vec<CachedTextBuffer>,
 
@@ -415,6 +419,7 @@ impl Tui {
 
             focused_node_path: Vec::with_capacity(16),
             focused_node_for_scrolling: ROOT_ID,
+            menubar_toggle_id: 0,
 
             cached_text_buffers: Vec::with_capacity(16),
 
@@ -575,7 +580,7 @@ impl Tui {
             Some(Input::Mouse(mouse)) => {
                 let mut next_state = mouse.state;
                 let next_position = mouse.position;
-                let next_scroll = mouse.scroll;
+                let mut next_scroll = mouse.scroll;
                 let mouse_down = self.mouse_state == InputMouseState::None
                     && next_state != InputMouseState::None;
                 let mouse_up = self.mouse_state != InputMouseState::None
@@ -621,6 +626,12 @@ impl Tui {
 
                 if is_scroll {
                     next_state = self.mouse_state;
+                    next_scroll.x *= 7;
+                    next_scroll.y *= 3;
+                    if mouse.modifiers.contains(kbmod::ALT) {
+                        next_scroll.x *= 5;
+                        next_scroll.y *= 5;
+                    }
                 } else if is_drag {
                     self.mouse_is_drag = true;
                 } else if mouse_down {
@@ -1210,12 +1221,12 @@ impl Tui {
                     result.push_str(arena, "  bordered:     true\r\n");
                 }
 
-                if node.attributes.bg.to_ne() != 0 {
+                if node.attributes.bg.to_rgba() != 0 {
                     result.push_repeat(arena, ' ', depth * 2);
                     arena_write_fmt!(arena, result, "  bg:           {:?}\r\n", node.attributes.bg);
                 }
 
-                if node.attributes.fg.to_ne() != 0 {
+                if node.attributes.fg.to_rgba() != 0 {
                     result.push_repeat(arena, ' ', depth * 2);
                     arena_write_fmt!(arena, result, "  fg:           {:?}\r\n", node.attributes.fg);
                 }
@@ -2071,7 +2082,7 @@ impl<'a> Context<'a, '_> {
         if self.is_focused() {
             self.attr_reverse();
         }
-        self.styled_label_add_text(if *checked { "[🗹 " } else { "[☐ " });
+        self.styled_label_add_text(if *checked { "[◼ " } else { "[◻ " });
         self.styled_label_add_text(text);
         self.styled_label_add_text("]");
         self.styled_label_end();
@@ -2257,11 +2268,19 @@ impl<'a> Context<'a, '_> {
         {
             let mouse = self.tui.mouse_position;
             let inner = node_prev.inner;
-            let text_rect = Rect {
-                left: inner.left + tb.margin_width(),
+            let select_rect = Rect {
+                left: inner.left,
                 top: inner.top,
+                // Multi-line areas have a 1-column scrollbar on the right.
                 right: inner.right - !single_line as CoordType,
                 bottom: inner.bottom,
+            };
+            let text_rect = Rect {
+                // The text area has a left margin for line numbers.
+                left: select_rect.left + tb.margin_width(),
+                top: select_rect.top,
+                right: select_rect.right,
+                bottom: select_rect.bottom,
             };
             let track_rect = Rect {
                 left: text_rect.right,
@@ -2274,7 +2293,7 @@ impl<'a> Context<'a, '_> {
                 y: mouse.y - inner.top + tc.scroll_offset.y,
             };
 
-            if text_rect.contains(self.tui.mouse_down_position) {
+            if select_rect.contains(self.tui.mouse_down_position) {
                 if self.tui.mouse_is_drag {
                     tb.selection_update_visual(pos);
                     tc.preferred_column = tb.cursor_visual_pos().x;
@@ -2283,14 +2302,19 @@ impl<'a> Context<'a, '_> {
 
                     // If the editor is only 1 line tall we can't possibly scroll up or down.
                     if height >= 2 {
-                        fn calc(min: CoordType, max: CoordType, mouse: CoordType) -> CoordType {
+                        fn calc(
+                            min: CoordType,
+                            max: CoordType,
+                            down: CoordType,
+                            mouse: CoordType,
+                        ) -> CoordType {
                             // Otherwise, the scroll zone is up to 3 lines at the top/bottom.
                             let zone_height = ((max - min) / 2).min(3);
 
                             // The .y positions where the scroll zones begin:
                             // Mouse coordinates above top and below bottom respectively.
-                            let scroll_min = min + zone_height;
-                            let scroll_max = max - zone_height - 1;
+                            let scroll_min = down.min(min + zone_height);
+                            let scroll_max = down.max(max - zone_height - 1);
 
                             // Calculate the delta for scrolling up or down.
                             let delta_min = (mouse - scroll_min).clamp(-zone_height, 0);
@@ -2300,12 +2324,13 @@ impl<'a> Context<'a, '_> {
                             let idx = 3 + delta_min + delta_max;
 
                             const SPEEDS: [CoordType; 7] = [-9, -3, -1, 0, 1, 3, 9];
-                            let idx = idx.clamp(0, SPEEDS.len() as CoordType) as usize;
+                            let idx = idx.clamp(0, SPEEDS.len() as CoordType - 1) as usize;
                             SPEEDS[idx]
                         }
 
-                        let delta_x = calc(text_rect.left, text_rect.right, mouse.x);
-                        let delta_y = calc(text_rect.top, text_rect.bottom, mouse.y);
+                        let down = self.tui.mouse_down_position;
+                        let delta_x = calc(text_rect.left, text_rect.right, down.x, mouse.x);
+                        let delta_y = calc(text_rect.top, text_rect.bottom, down.y, mouse.y);
 
                         tc.scroll_offset.x += delta_x;
                         tc.scroll_offset.y += delta_y;
@@ -2313,6 +2338,17 @@ impl<'a> Context<'a, '_> {
                         if delta_x != 0 || delta_y != 0 {
                             self.tui.read_timeout = time::Duration::from_millis(25);
                         }
+                    }
+                } else if !text_rect.contains(self.tui.mouse_down_position) {
+                    if self.tui.mouse_state == InputMouseState::Left {
+                        let y = if tb.is_word_wrap_enabled() {
+                            tb.cursor_move_to_visual(Point { x: 0, y: pos.y });
+                            tb.cursor_logical_pos().y
+                        } else {
+                            pos.y
+                        };
+                        tb.cursor_move_to_logical(Point { x: 0, y });
+                        tb.selection_update_logical(Point { x: 0, y: y + 1 });
                     }
                 } else {
                     match self.input_mouse_click {
@@ -3177,7 +3213,21 @@ impl<'a> Context<'a, '_> {
             && !contains_focus
             && self.consume_shortcut(kbmod::ALT | InputKey::new(accelerator as u32));
 
+        let button_id = self.tree.last_node.borrow().id;
+
+        if self.button_activated() && self.tui.menubar_toggle_id == button_id {
+            self.tui.menubar_toggle_id = 0;
+            self.toss_focus_up();
+            return false;
+        }
+
         if contains_focus || keyboard_focus {
+            // Arming this only while no button is held keeps the press
+            // that opened the menu from closing it again right away.
+            if self.tui.mouse_state != InputMouseState::Left {
+                self.tui.menubar_toggle_id = button_id;
+            }
+
             self.attr_background_rgba(self.tui.floater_default_bg);
             self.attr_foreground_rgba(self.tui.floater_default_fg);
 
@@ -3290,6 +3340,10 @@ impl<'a> Context<'a, '_> {
     /// Ends the current menubar.
     pub fn menubar_end(&mut self) {
         self.table_end();
+
+        if !self.contains_focus() {
+            self.tui.menubar_toggle_id = 0;
+        }
     }
 
     /// Renders a button label with an optional accelerator character
@@ -3301,7 +3355,7 @@ impl<'a> Context<'a, '_> {
             self.styled_label_add_text("[");
         }
         if let Some(checked) = style.checked {
-            self.styled_label_add_text(if checked { "🗹 " } else { "  " });
+            self.styled_label_add_text(if checked { "◼ " } else { "  " });
         }
         // Label text
         match style.accelerator {
